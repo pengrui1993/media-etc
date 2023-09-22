@@ -1,5 +1,6 @@
 #include <AL/alc.h>
 #include <iostream>
+#include <string>
 #include <fstream>
 #include <vorbis/vorbisfile.h>
 #include <functional>
@@ -8,6 +9,7 @@
 #include <chrono>
 #include <ctime>
 #include <ratio>
+// #include <unistd.h>
 #define DEBUG 1
 #define SLOG 1
 #if (DEBUG)
@@ -64,13 +66,14 @@ auto alCallImpl(const char *filename, const std::uint_fast32_t line, alFunction 
 struct OggAudioPlayer
 {
     static const std::size_t NUM_BUFFERS = 2;
-    static const ALsizei BUFFER_SIZE = 10 * 1024;
+    static const ALsizei BUFFER_SIZE = 4 * 1024;
     typedef char byte;
 
 public:
-    bool load(std::string path)
+    bool load(std::string path, bool first = true)
     {
         filepath = path;
+        // reset(first);
         file.open(path, std::ios::binary);
         if (!file)
         {
@@ -110,16 +113,17 @@ public:
             std::cerr << "invalid audio format, channels:" << channels << std::endl;
             return false;
         }
+        /*
+            alCall(alGenSources, 1, &audioData.source);
+        alCall(alSourcef, audioData.source, AL_PITCH, 1);
+        alCall(alSourcef, audioData.source, AL_GAIN, DEFAULT_GAIN);
+        alCall(alSource3f, audioData.source, AL_POSITION, 0, 0, 0);
+        alCall(alSource3f, audioData.source, AL_VELOCITY, 0, 0, 0);
+        alCall(alSourcei, audioData.source, AL_LOOPING, AL_FALSE);
+        alCall(alGenBuffers, NUM_BUFFERS, &audioData.buffers[0]);
+        */
         { // al call
-            /*
-                alCall(alGenSources, 1, &audioData.source);
-    alCall(alSourcef, audioData.source, AL_PITCH, 1);
-    alCall(alSourcef, audioData.source, AL_GAIN, DEFAULT_GAIN);
-    alCall(alSource3f, audioData.source, AL_POSITION, 0, 0, 0);
-    alCall(alSource3f, audioData.source, AL_VELOCITY, 0, 0, 0);
-    alCall(alSourcei, audioData.source, AL_LOOPING, AL_FALSE);
-    alCall(alGenBuffers, NUM_BUFFERS, &audioData.buffers[0]);
-            */
+
             alCall(alGenSources, 1, &source);
             alCall(alSourcef, source, AL_PITCH, pitch);
             alCall(alSourcef, source, AL_GAIN, gain);
@@ -136,8 +140,11 @@ public:
     {
         if (consumed == size)
         {
-            isOver = true;
-            std::cout << "over done" << std::endl;
+            if (!musicLoop)
+            {
+                isOver = true;
+                std::cout << "over done" << std::endl;
+            }
         }
         return isOver;
     }
@@ -180,7 +187,7 @@ public:
             while (index < BUFFER_SIZE)
             {
                 long res;
-                if ((res = ovRead(buffer, -1, index)) > 0)
+                if ((res = ovRead(buffer, -1, index, false)) > 0)
                 {
                     index += res;
                 }
@@ -190,7 +197,18 @@ public:
                 }
                 else // 0
                 {
-                    exit(-3);
+                    if (musicLoop)
+                    {
+                        auto seek = ov_raw_seek(&oggFile, 0);
+                        if (!printSeekInfo(seek))
+                        {
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        exit(-3);
+                    }
                 }
             }
             alCall(alBufferData, bufferId, fmt, &buffer[0], index, sampleRate);
@@ -224,12 +242,66 @@ public:
         ALint state;
         alCall(alGetSourcei, source, AL_SOURCE_STATE, &state);
         const bool res = AL_PLAYING == state;
-
         return res;
     }
 
 private:
-    long ovRead(byte *buffer, size_t i, size_t index)
+    bool printSeekInfo(int seekRes)
+    {
+        switch (seekRes)
+        {
+        case OV_ENOSEEK:
+            std::cerr << "try loop error:OV_ENOSEEK" << std::endl;
+            break;
+        case OV_EINVAL:
+            std::cerr << "try loop error:OV_EINVAL" << std::endl;
+            break;
+        case OV_EREAD:
+            std::cerr << "try loop error:OV_EREAD" << std::endl;
+            break;
+        case OV_EFAULT:
+            std::cerr << "try loop error:OV_EFAULT" << std::endl;
+            break;
+        case OV_EOF:
+            std::cerr << "try loop error:OV_EOF" << std::endl;
+            break;
+        case OV_EBADLINK:
+            std::cerr << "try loop error:OV_EBADLINK" << std::endl;
+            break;
+        case 0:
+            break;
+        default:
+            std::cerr << "try loop error:unknown" << std::endl;
+        }
+        return 0 == seekRes;
+    }
+    void reset(bool first = false)
+    {
+        if (file.is_open())
+        {
+            file.close();
+        }
+        size = 0;
+        consumed = 0;
+        channels = -1;
+        sampleRate = -1L;
+        bitPerSample = 0;
+        duration = 0;
+        isOver = true;
+        isPlaying = false;
+        oggCurrentSection = 0;
+        musicLoop = true;
+        if (first)
+            return;
+        if (remoteIsPlaying())
+        {
+            alCall(alSourceStop, source);
+        }
+        alCall(alSourceUnqueueBuffers, source, NUM_BUFFERS, nbuf);
+        alCall(alDeleteSources, 1, &source);
+        alCall(alDeleteBuffers, NUM_BUFFERS, nbuf);
+    }
+    long ovRead(byte *buffer, size_t i, size_t index, bool careZero = true)
     {
         auto res = ov_read(&oggFile, &buffer[index], BUFFER_SIZE - index, 0, 2, 1, &oggCurrentSection);
         if (res <= 0)
@@ -237,7 +309,8 @@ private:
             switch (res)
             {
             case 0:
-                std::cerr << "read err,buffer:" << i << ",end of file" << std::endl;
+                if (careZero)
+                    std::cerr << "read err,buffer:" << i << ",end of file" << std::endl;
                 return res;
             case OV_HOLE:
                 std::cerr << "read err,buffer:" << i << ",hole" << std::endl;
@@ -303,6 +376,12 @@ private:
 #if SLOG
         std::cout << "ogg read length:" << length << std::endl;
 #endif
+        if (p->musicLoop)
+        {
+            if (p->consumed == p->size)
+            {
+            }
+        }
         return length;
     }
     static int oggSeek(void *ds, ogg_int64_t offset, int whence)
@@ -380,6 +459,7 @@ private:
     size_t duration{0};
     bool isOver{true}, isPlaying{false};
     int oggCurrentSection{0};
+    bool musicLoop{true};
 
 private:
     ALuint source{0};
@@ -425,6 +505,12 @@ void testchrono()
 }
 int main()
 {
+#ifndef STDIN_FILENO
+#define STDIN_FILENO 0
+    // std::ios::sync_with_stdio(false);
+    // std::cin.tie(STDIN_FILENO);
+#undef STDIN_FILENO
+#endif
     auto aldevice = alcOpenDevice(nullptr);
     if (!aldevice)
     {
@@ -450,6 +536,16 @@ int main()
     while (!player.over())
     {
         player.play();
+        if (std::cin.rdbuf()->in_avail() > 0)
+        {
+            std::cout << "cin read some message" << std::endl;
+            std::string line;
+            std::getline(std::cin, line);
+            if (std::string("pause") == line)
+            {
+                std::cout << "input pause" << std::endl;
+            }
+        }
     }
     if (aldevice)
     {
