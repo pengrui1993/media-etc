@@ -1,0 +1,14 @@
+
+.vscode
+*.swp
+
+
+window
+spacescnoise
+data_music
+input_music
+noise
+pcm0
+pcm_enc
+pcm_struct
+thread
