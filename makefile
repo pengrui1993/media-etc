@@ -3,7 +3,8 @@ UNAME:=$(shell uname)
 
 CXXFLAGS+= -std=c++17 -Wall
 
-LDLIBS+=$(shell pkg-config --cflags --libs openal vorbis ogg vorbisfile)
+LDLIBS+=$(shell pkg-config --cflags --libs openal vorbis ogg vorbisfile) dbg.cc
+#LDLIBS+=$(shell pkg-config --cflags --libs openal vorbis ogg vorbisfile portaudiocpp) dbg.cc
 
 #vpath %.h include
 #vpath %.cpp src
@@ -11,4 +12,5 @@ LDLIBS+=$(shell pkg-config --cflags --libs openal vorbis ogg vorbisfile)
 .PHONY: clean
 
 clean:;
-	@rm -f al myal
+	@rm -f *.o
+	@rm -f al myal test portaudio alrecorder

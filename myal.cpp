@@ -9,60 +9,11 @@
 #include <chrono>
 #include <ctime>
 #include <ratio>
+#include <thread>
 // #include <unistd.h>
-#define DEBUG 1
-#define SLOG 1
-#if (DEBUG)
-#define alCall(function, ...) alCallImpl(__FILE__, __LINE__, function, __VA_ARGS__)
-#else
-#define alCall(function, ...) function(__VA_ARGS__)
-#endif
-#define alcCall(function, device, ...) alcCallImpl(__FILE__, __LINE__, function, device, __VA_ARGS__)
-void check_al_errors(const std::string &filename, const std::uint_fast32_t line)
-{
-    ALCenum error = alGetError();
-    if (error != AL_NO_ERROR)
-    {
-        std::cerr << "***ERROR*** (" << filename << ": " << line << ")\n";
-        switch (error)
-        {
-        case AL_INVALID_NAME:
-            std::cerr << "AL_INVALID_NAME: a bad name (ID) was passed to an OpenAL function";
-            break;
-        case AL_INVALID_ENUM:
-            std::cerr << "AL_INVALID_ENUM: an invalid enum value was passed to an OpenAL function";
-            break;
-        case AL_INVALID_VALUE:
-            std::cerr << "AL_INVALID_VALUE: an invalid value was passed to an OpenAL function";
-            break;
-        case AL_INVALID_OPERATION:
-            std::cerr << "AL_INVALID_OPERATION: the requested operation is not valid";
-            break;
-        case AL_OUT_OF_MEMORY:
-            std::cerr << "AL_OUT_OF_MEMORY: the requested operation resulted in OpenAL running out of memory";
-            break;
-        default:
-            std::cerr << "UNKNOWN AL ERROR: " << error;
-        }
-        std::cerr << std::endl;
-    }
-}
-template <typename alFunction, typename... Params>
-auto alCallImpl(const char *filename, const std::uint_fast32_t line, alFunction function, Params... params)
-    -> typename std::enable_if<std::is_same<void, decltype(function(params...))>::value, decltype(function(params...))>::type
-{
-    function(std::forward<Params>(params)...);
-    check_al_errors(filename, line);
-}
+#include "dbg.hpp"
 
-template <typename alFunction, typename... Params>
-auto alCallImpl(const char *filename, const std::uint_fast32_t line, alFunction function, Params... params)
-    -> typename std::enable_if<!std::is_same<void, decltype(function(params...))>::value, decltype(function(params...))>::type
-{
-    auto ret = function(std::forward<Params>(params)...);
-    check_al_errors(filename, line);
-    return ret;
-}
+static std::__thread_id tid;
 struct OggAudioPlayer
 {
     static const std::size_t NUM_BUFFERS = 2;
@@ -175,6 +126,8 @@ public:
         }
         else
         {
+            if (over())
+                return;
             ALint buffersProcessed = 0;
             alCall(alGetSourcei, source, AL_BUFFERS_PROCESSED, &buffersProcessed);
             if (buffersProcessed <= 0)
@@ -182,7 +135,7 @@ public:
             ALuint bufferId;
             alCall(alSourceUnqueueBuffers, source, 1, &bufferId);
             //::bzero(buffer, BUFFER_SIZE);
-            std::memset(buffer, 0, BUFFER_SIZE);
+            // std::memset(buffer, 0, BUFFER_SIZE);
             size_t index = 0;
             while (index < BUFFER_SIZE)
             {
@@ -341,6 +294,7 @@ private:
         auto str = ctime(&tt);
         std::cout << "ogg read:" << now.time_since_epoch().count() << std::endl;
 #endif
+        // std::cout << "thread info:" << (std::this_thread::get_id() == tid) << std::endl; //1
         OggAudioPlayer *p = reinterpret_cast<OggAudioPlayer *>(ds);
         auto length = size * nmemb;
         if (p->consumed + length > p->size)
@@ -376,32 +330,39 @@ private:
 #if SLOG
         std::cout << "ogg read length:" << length << std::endl;
 #endif
-        if (p->musicLoop)
-        {
-            if (p->consumed == p->size)
+        /*
+            if (p->musicLoop)
             {
+                if (p->consumed == p->size)
+                {
+                }
             }
-        }
+        */
         return length;
     }
     static int oggSeek(void *ds, ogg_int64_t offset, int whence)
     {
-        std::cout << "ogg seek" << std::endl;
+        std::cout << "ogg seek:";
         OggAudioPlayer *p = reinterpret_cast<OggAudioPlayer *>(ds);
         switch (whence)
         {
         case SEEK_CUR:
             p->consumed += offset;
+            std::cout << "cur";
             break;
         case SEEK_END:
+            std::cout << "end";
             p->consumed = p->size - offset;
             break;
         case SEEK_SET:
+            std::cout << "set";
             p->consumed = offset;
             break;
         default:
+            std::cout << "unknown" << std::endl;
             return -1;
         }
+        std::cout << std::endl;
         if (p->consumed < 0)
         {
             std::cerr << "consumed less then zero" << std::endl;
@@ -421,7 +382,7 @@ private:
         return p->consumed;
     }
     template <typename RET, typename PARAM>
-    auto call(std::function<RET(PARAM)> f) -> PARAM
+    auto call(std::function<RET(PARAM)> f) -> RET
     {
         return f();
     }
@@ -491,26 +452,14 @@ void listener(ALfloat pos[3], ALfloat vel[3], ALfloat ori[6])
     // alListenerfv(AL_ORIENTATION, ori);
     alCall(alListenerfv, AL_ORIENTATION, ori);
 }
-void testchrono()
-{
-    using std::chrono::system_clock;
-    std::chrono::duration<int, std::ratio<60 * 60 * 24>> one_day(1);
-    system_clock::time_point today = system_clock::now();
-    system_clock::time_point tomorrow = today + one_day;
-    std::time_t tt;
-    tt = system_clock::to_time_t(today);
-    std::cout << "today is: " << ctime(&tt);
-    tt = system_clock::to_time_t(tomorrow);
-    std::cout << "tomorrow will be: " << ctime(&tt);
-}
+
+
+
 int main()
 {
-#ifndef STDIN_FILENO
-#define STDIN_FILENO 0
+    tid = std::this_thread::get_id();
     // std::ios::sync_with_stdio(false);
-    // std::cin.tie(STDIN_FILENO);
-#undef STDIN_FILENO
-#endif
+    // std::cin.tie(nullptr);
     auto aldevice = alcOpenDevice(nullptr);
     if (!aldevice)
     {
@@ -536,19 +485,11 @@ int main()
     while (!player.over())
     {
         player.play();
-        if (std::cin.rdbuf()->in_avail() > 0)
-        {
-            std::cout << "cin read some message" << std::endl;
-            std::string line;
-            std::getline(std::cin, line);
-            if (std::string("pause") == line)
-            {
-                std::cout << "input pause" << std::endl;
-            }
-        }
     }
     if (aldevice)
     {
+        alcMakeContextCurrent(nullptr);
+        alcDestroyContext(alctx);
         if (!alcCloseDevice(aldevice))
         {
             std::cerr << "close defice error" << std::endl;
