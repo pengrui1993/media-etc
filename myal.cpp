@@ -178,12 +178,12 @@ public:
             file.close();
         if (source > 0)
         {
-            alDeleteSources(1, &source);
+            alCall(alDeleteSources,1, &source);
             source = 0;
         }
         if (nbuf[0] > 0)
         {
-            alDeleteBuffers(NUM_BUFFERS, nbuf);
+            alCall(alDeleteBuffers,NUM_BUFFERS, nbuf);
             std::memset(nbuf, 0, NUM_BUFFERS);
         }
     }

@@ -14,9 +14,9 @@ EXES:=$(CPPS:%.cpp=%)
 
 clean:;
 	@rm -f *.o
-	@rm -f $(EXES)\
-	# cd sdlgaphic && make clean && cd ..
-	&& cd sdlpcm && make clean && cd ..
+	@rm -f $(EXES)
+	@cd sdlgaphic && make clean && cd ..
+	@cd sdlpcm && make clean && cd ..
 
 all:
 	@cd sdlgaphic && make all && cd ..

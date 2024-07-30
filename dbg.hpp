@@ -39,18 +39,16 @@ auto alCallImpl(ALPath filename, ALLine line, alFunction function, Params... par
 }
 
 template <typename alFunction, typename... Params>
-auto alcCallImpl(ALPath filename, ALLine line, alFunction function,ALCdevice*d, Params&&... params)
+auto alcCallImpl(ALPath filename, ALLine line, alFunction function,ALCdevice*d, Params... params)
     -> typename std::enable_if<std::is_same<void, decltype(function(d,params...))>::value, decltype(function(d,params...))>::type
 {
-  
     function(d,std::forward<Params>(params)...);
     check_alc_errors(filename, line,d);
 }
 template <typename alFunction, typename... Params>
-auto alcCallImpl(ALPath filename, ALLine line, alFunction function,ALCdevice*d, Params&&... params)
+auto alcCallImpl(ALPath filename, ALLine line, alFunction function,ALCdevice*d, Params... params)
     -> typename std::enable_if<!std::is_same<void, decltype(function(d,params...))>::value, decltype(function(d,params...))>::type
 {
-
     auto ret = function(d,std::forward<Params>(params)...);
     check_alc_errors(filename, line,d);
     return ret;

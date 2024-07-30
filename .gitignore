@@ -2,9 +2,9 @@
 .vscode
 *.swp
 
-myal al portaudio alrecorder
-sdlgaphic/window
-sdlpcm/noise
-sdlpcm/pcm_enc
-sdlpcm/pcm0
+myal 
+al 
+portaudio 
+alrecorder
+
 test

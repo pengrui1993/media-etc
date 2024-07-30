@@ -6,36 +6,8 @@
 #include <type_traits>
 #include <cstdlib>
 #include <thread>
+#include <fstream>
 #include "dbg.hpp"
-
-
-//ALint sample;
-//pkg-config --cflags --libs openal
-//https://stackoverflow.com/questions/3056113/recording-audio-with-openal
-//https://github.com/kcat/openal-soft/blob/master/examples/alrecord.c
-int demo(){
-    const int SRATE = 44100;
-    const int SSIZE = 1024;
-    ALCint sample;
-    ALbyte buffer[22050];
-    alGetError();
-    ALCdevice *device = alcCaptureOpenDevice(NULL, SRATE, AL_FORMAT_STEREO16, SSIZE);
-    if (alGetError() != AL_NO_ERROR) {
-         std::cerr << "alGetError" <<std::endl;
-        return 0;
-    }
-    alcCaptureStart(device);
-    while (true) {
-     
-        alcGetIntegerv(device, ALC_CAPTURE_SAMPLES, (ALCsizei)sizeof(ALint), &sample);
-        alcCaptureSamples(device, (ALCvoid *)buffer, sample);
-
-        // ... do something with the buffer 
-    }
-
-    alcCaptureStop(device);
-    alcCaptureCloseDevice(device);
-}
 static void alinit(){
  if(alcIsExtensionPresent(NULL, "ALC_SOFT_loopback") == ALC_FALSE) {
         std::fputs("Your OpenAL implementation doesn't support the "
@@ -51,27 +23,47 @@ static void alinit(){
         std::fputs("Warning : ALC_SOFT_loopback has been written against "
               "the OpenAL 1.1 specification.\n", stderr);
 }
-int main(int argc, char *argv[]) {
-    alinit();
-    // clear_alc_errors();
-    std::cout << "start recorder" << std::endl;
-    // alcGetString(nullptr, ALC_DEFAULT_DEVICE_SPECIFIER)
-    int fmt = AL_FORMAT_STEREO16;
-    ALCdevice *device = alcCaptureOpenDevice(
-        nullptr, 44100, fmt, 4096);
+
+//ALint sample;
+//pkg-config --cflags --libs openal
+//https://stackoverflow.com/questions/3056113/recording-audio-with-openal
+
+int demo(){
+    ALCint sample;
+    // ALbyte buffer[22050];//small to get crash
+    ALbyte buffer[5*7526];
+    bzero(buffer,sizeof(buffer)/sizeof(buffer[0]));
+    alcCall(alcGetError,nullptr);
+    ALCdevice *device = alcCaptureOpenDevice(nullptr, 44100, AL_FORMAT_STEREO16, 1024);
     if(!device){
-        std::cout << "capture device error" << std::endl;
+        std::printf("init device error\n");
         std::exit(-1);
     }
-    std::printf("opened:%s ,al error:",alcGetString(device,ALC_CAPTURE_DEVICE_SPECIFIER));
-    std::cout << alGetError()<<",alc err:"
-    << alcGetError(device)  << std::endl;
+    if (alcCall(alcGetError,device) != ALC_NO_ERROR) {
+         std::cerr << "alcGetError" <<std::endl;
+        return 0;
+    }
     alcCall(alcCaptureStart,device);
-    ALCint sample = -1;
-    //mFrameSize = mChannels*mBits/8
-    //b/s = sampleRate*mFrameSize
-    //buf_size = mFrameSize * sample
-    ALbyte* buffer = nullptr;
+    while (true) {
+        // constexpr auto size = (ALCsizei)sizeof(ALint);
+        constexpr auto size = 1;
+        alcCall(alcGetIntegerv,device, ALC_CAPTURE_SAMPLES,size, &sample);
+        if(sample<1){
+             std::this_thread::sleep_for(std::chrono::seconds(1));
+             continue;
+        }
+        float value = 0;
+        for(int i=0;i<size*sample;i++)value+=buffer[i];
+        std::fprintf(stderr,"sample:%d,value:%f ",sample,value);
+        alcCall(alcCaptureSamples,device, (ALCvoid *)buffer, sample);
+        // ... do something with the buffer 
+    }
+    alcCaptureStop(device);
+    alcCaptureCloseDevice(device);
+}
+
+//https://github.com/kcat/openal-soft/blob/master/examples/alrecord.c
+int frame_size_from(int fmt){
     int frame_size;
     switch(fmt){
         case AL_FORMAT_MONO8:frame_size=1*(8/8);break;
@@ -82,20 +74,44 @@ int main(int argc, char *argv[]) {
             std::printf("invalid fmt");
             std::exit(-1);
     }
+    return frame_size;
+}
+//int t1(int argc, char *argv[]);
+int t1() {
+    alinit();
+    // clear_alc_errors();
+    //int fmt = AL_FORMAT_STEREO16;
+    int fmt = AL_FORMAT_MONO8;
+    ALCdevice *device = alcCaptureOpenDevice(
+        nullptr, 44100, fmt, 4096);
+    if(!device){
+        std::cout << "capture device error" << std::endl;
+        std::exit(-1);
+    }
+    std::printf("opened:%s ,al error:",alcGetString(device,ALC_CAPTURE_DEVICE_SPECIFIER));
+    std::cout << alGetError()<<",alc err:"<< alcGetError(device)  << std::endl;
+    alcCall(alcCaptureStart,device);
+    ALCint sample = -1;
+    //mFrameSize = mChannels*mBits/8
+    //b/s = sampleRate*mFrameSize
+    //buf_size = mFrameSize * sample
+    ALbyte* buffer = nullptr;
     int read_buf_size = 0;
+    std::ofstream f;
+    f.open("/tmp/cpp.pcm",std::ios::trunc);
+    int count = 0;
+    int frame_size = frame_size_from(fmt);
     while (true) {
-        // alcCall(alcGetIntegerv,device, ALC_CAPTURE_SAMPLES, (ALCsizei)sizeof(ALint), &sample);
-        // alcCall(alcCaptureSamples,device, (ALCvoid *)buffer, sample);
+        if(count++>1000)break;
         alcCall(alcGetIntegerv,device, ALC_CAPTURE_SAMPLES, 1, &sample);
         if(sample<1){
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
         auto alloc = [&](){
-            int size = frame_size*sample;
-            buffer = new int8_t[size];
-            read_buf_size = size;
-            std::printf("alloc buf:%d\n",size);
+            buffer = new int8_t[sample];
+            read_buf_size = sample;
+            std::printf("alloc buf:%d\n",sample);
         };
         if(!buffer){
             alloc();
@@ -103,19 +119,21 @@ int main(int argc, char *argv[]) {
             delete[] buffer;
             alloc();
         }else{
+            std::memset(buffer,0,frame_size*sample);
             alcCall(alcCaptureSamples,device, (ALCvoid *)buffer, sample);
-        }
-        float result = 0;
-        for(int i=0;i<sample;i++){
-            result+=buffer[i];
-        }
-        if(result>0.1f){
-            std::printf("result %f,sample %d\n",result,sample);
-            std::exit(0);
+            for(int i=0;i<sample;i++)f<<buffer[i];
         }
     }
+    f.close();
+    std::cout <<"ALCdevice *device = alcCaptureOpenDevice(nullptr, 44100, AL_FORMAT_MONO8, 4096)"<<std::endl
+            <<"ffplay -f u8 -ch_layout mono -ar 44100 /tmp/cpp.pcm"<< std::endl
+            ;
     if(buffer)delete[] buffer;
     alcCall(alcCaptureStop,device);
     alcCall(alcCaptureCloseDevice,device);
     return 0;
+}
+
+int main(){
+    return t1();
 }
