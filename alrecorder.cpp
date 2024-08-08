@@ -8,6 +8,9 @@
 #include <thread>
 #include <fstream>
 #include "dbg.hpp"
+/*
+TODO noise problem later care
+ */
 static void alinit(){
  if(alcIsExtensionPresent(NULL, "ALC_SOFT_loopback") == ALC_FALSE) {
         std::fputs("Your OpenAL implementation doesn't support the "
@@ -133,7 +136,10 @@ int t1() {
     alcCall(alcCaptureCloseDevice,device);
     return 0;
 }
-
+/*
+about al device runtime managment
+https://openal.org/pipermail/openal/2016-September/000550.html
+*/
 int main(){
     return t1();
 }
