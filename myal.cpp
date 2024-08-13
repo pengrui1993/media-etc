@@ -460,7 +460,11 @@ int main()
     tid = std::this_thread::get_id();
     // std::ios::sync_with_stdio(false);
     // std::cin.tie(nullptr);
-    auto aldevice = alcOpenDevice(nullptr);
+
+    // auto aldevice = alcOpenDevice(nullptr);
+    auto deviceName = alcGetString(0,ALC_DEFAULT_DEVICE_SPECIFIER);
+    std::cout <<"default device:" << deviceName << std::endl;
+    auto aldevice = alcOpenDevice(deviceName);
     if (!aldevice)
     {
         std::cerr << "open default device error" << std::endl;
